@@ -1,0 +1,408 @@
+Program.Sub.ScreenSU.Start
+Gui.F_Obsolescence..Create
+Gui.F_Obsolescence..Caption("Obsolescence Dashboard")
+Gui.F_Obsolescence..Size(15360,10695)
+Gui.F_Obsolescence..MinX(0)
+Gui.F_Obsolescence..MinY(0)
+Gui.F_Obsolescence..Position(0,0)
+Gui.F_Obsolescence..BackColor(-2147483633)
+Gui.F_Obsolescence..MousePointer(0)
+Gui.F_Obsolescence..Event(UnLoad,F_Obsolescence_UnLoad)
+Gui.F_Obsolescence..Event(Resize,F_Obsolescence_Resize)
+Gui.F_Obsolescence.GsGcSlowInv.Create(GsGridControl)
+Gui.F_Obsolescence.GsGcSlowInv.Size(15030,9015)
+Gui.F_Obsolescence.GsGcSlowInv.Position(45,1050)
+Gui.F_Obsolescence.GsGcSlowInv.Anchor(15)
+Gui.F_Obsolescence.GsGcSlowInv.Event(RowCellClick,GsGcSlowInv_RowCellClick)
+Gui.F_Obsolescence.lbl1.Create(Label,"Data Last Cached:",True,930,420,0,75,135,True,0,"Arial",8,-2147483633,0)
+Gui.F_Obsolescence.txtLastLoaded.Create(TextBox,"",True,2610,300,0,1050,135,True,0,"Arial",8,-2147483643,1)
+Gui.F_Obsolescence.txtLastLoaded.Locked(True)
+Gui.F_Obsolescence.picGSSLogo.Create(PictureBox)
+Gui.F_Obsolescence.picGSSLogo.Size(4125,960)
+Gui.F_Obsolescence.picGSSLogo.Position(5430,45)
+Gui.F_Obsolescence.lblStatus.Create(Label,"Loading Order Data...",False,1935,255,0,12900,270,True,0,"Arial",8,-2147483633,0)
+Gui.F_Obsolescence.lblStatus.Anchor(9)
+Gui.F_Obsolescence.pbStatus.Create(ProgressBar)
+Gui.F_Obsolescence.pbStatus.Visible(False)
+Gui.F_Obsolescence.pbStatus.Size(2055,255)
+Gui.F_Obsolescence.pbStatus.Position(12900,495)
+Gui.F_Obsolescence.pbStatus.Anchor(9)
+Gui.F_Obsolescence.cmdRefreshReqs.Create(Button)
+Gui.F_Obsolescence.cmdRefreshReqs.Size(2460,375)
+Gui.F_Obsolescence.cmdRefreshReqs.Position(120,570)
+Gui.F_Obsolescence.cmdRefreshReqs.Caption("Refresh Requirements")
+Gui.F_Obsolescence.cmdRefreshReqs.Event(Click,cmdRefreshReqs_Click)
+Gui.F_Obsolescence.cmdRefreshReqs.ToolTip("This will run Balance Requirements, then Calculate Monthly Usage, then finally refresh the cache for this dashboard.  The dashboard will then refresh.")
+Program.Sub.ScreenSU.End
+
+Program.Sub.Preflight.Start
+	v.Global.bLoaded.Declare(boolean)
+Program.External.Include.Library("300010.lib")
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+	f.Intrinsic.Control.Try
+		v.Local.sIcon.Declare
+		V.Local.sGssLogo.Declare
+		
+		F.Intrinsic.String.Build("{0}\ART\gss2.ico",V.Caller.GlobalDir,v.Local.sIcon)		
+		F.Intrinsic.String.Build("{0}\ART\GAB_GSS_Logo_Green_Dash.png",V.Caller.GlobalDir,V.Local.sGssLogo)
+		gui.F_Obsolescence.picGSSLogo.Picture(v.Local.sGssLogo)
+		gui.F_Obsolescence..Icon(V.Local.sIcon)
+		
+		f.Intrinsic.Control.CallSub(InitializeDir)
+		
+		gui.F_Obsolescence.pbStatus.Min(0)
+		gui.F_Obsolescence.pbStatus.Max(100)
+		f.Intrinsic.Control.CallSub(LoadData)
+		f.Intrinsic.Control.CallSub(LoadGC)
+		f.Intrinsic.Control.CallSub(SetContextMenus)
+		gui.F_Obsolescence..Show
+		
+		F.Intrinsic.Control.CallSub(Deserialize)
+	f.Intrinsic.Control.Catch
+		f.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, v.Ambient.CurrentSubroutine)
+	f.Intrinsic.Control.EndTry
+Program.Sub.Main.End
+
+Program.Sub.F_Obsolescence_UnLoad.Start
+	F.Intrinsic.Control.If(V.Global.bLoaded)
+		F.Intrinsic.Control.CallSub(Serialize)
+	F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.End
+Program.Sub.F_Obsolescence_UnLoad.End
+
+Program.Sub.F_Obsolescence_Resize.Start
+	F.Intrinsic.Control.Try
+		V.Local.sError.Declare
+		V.Local.iX.Declare
+		
+		F.Intrinsic.Math.Div(V.Screen.F_Obsolescence.Width,2,V.Local.iX)
+		F.Intrinsic.Math.Sub(V.Local.iX,2000,V.Local.iX)
+		gui.F_Obsolescence.picGSSLogo.Position(V.Local.iX,45)
+	
+		'Let Form grow larger than 15360, but not lower
+		F.Intrinsic.Control.If(V.Screen.F_Obsolescence.Width,<,15360)
+			gui.F_Obsolescence..Size(15360,V.Screen.F_Obsolescence.Height)
+		F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.Catch
+		f.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, v.Ambient.CurrentSubroutine)
+	F.Intrinsic.Control.EndTry
+Program.Sub.F_Obsolescence_Resize.End
+
+Program.Sub.ErrorMsg.Start
+v.Local.sError.Declare
+
+'Closes ODBC connection, default to connection : "con"
+f.Intrinsic.Control.If(v.ODBC!con.State, =, 1)
+	f.ODBC.Connection!con.Close
+f.Intrinsic.Control.EndIf
+
+'Generic Error message.
+f.Intrinsic.String.Build("Project GCG_5647_ObsolescenceDashboard.g2u {0}{0}Subroutine: {1}{0}Error: {2} with Description: {3}", v.Ambient.NewLine, v.Args.CurrentSub, v.Ambient.ErrorNumber, v.Ambient.ErrorDescription, v.Local.sError)
+f.Intrinsic.UI.Msgbox(v.Local.sError)
+Program.Sub.ErrorMsg.End
+
+Program.Sub.InitializeDir.Start
+	f.Intrinsic.Control.Try
+		v.Local.bExists.Declare(boolean)
+		v.Local.sFilePath.Declare(string)
+		
+		f.Intrinsic.String.Build("{0}\CUSTOM\GCG_5647\",v.Caller.GlobalDir,v.Local.sFilePath)
+		f.Intrinsic.File.DirExists(v.Local.sFilePath,v.Local.bExists)
+		f.Intrinsic.Control.If(v.Local.bExists,=,False)
+			f.Intrinsic.File.CreateDir(v.Local.sFilePath)
+		f.Intrinsic.Control.EndIf
+	f.Intrinsic.Control.Catch
+		f.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, v.Ambient.CurrentSubroutine)
+	f.Intrinsic.Control.EndTry
+Program.Sub.InitializeDir.End
+
+Program.Sub.loadData.Start
+	f.Intrinsic.Control.Try
+		v.Local.sSQL.Declare(string)
+		v.Local.sFilePath.Declare(string)
+		v.Local.sUpdated.Declare(string)
+		v.Local.bExists.Declare(boolean)
+		
+		v.Local.sSQL.Set("select ltrim(rtrim(part)) as part, LOCATION, ORIG_PART, ltrim(rtrim(description)) as DESCRIPTION, PRODUCT_LINE, ltrim(rtrim(CODE_SOURCE)) as CODE_SOURCE, QTY_ONHAND, USAGE, OVERSTOCK, NUM_YEARS, COST, EXTCOST, A50, J55, O35, R10, R10STAR, T40, W10, QTY_CURRENT_USAGE, WOREQS, SOREQS from gcg_5647_obsolparts order by orig_part;")
+		
+		gui.F_Obsolescence.pbStatus.Value(0)
+		gui.F_Obsolescence.lblStatus.Visible(True)
+		gui.F_Obsolescence.pbStatus.Visible(True)
+		
+		'Pull from cache.  If none found, pull from tables.
+		f.ODBC.Connection!con.opencompanyconnection
+			f.Intrinsic.Control.If(v.DataTable.dtParts.Exists,=,False)
+				f.Data.DataTable.CreateFromSQL("dtParts","con",v.Local.sSQL,True)
+			f.Intrinsic.Control.EndIf
+			f.Intrinsic.Control.If(v.DataTable.dtPartsTemp.Exists)
+				f.Data.DataTable.Close("dtPartsTemp")
+			f.Intrinsic.Control.EndIf
+			f.Data.DataTable.CreateFromSQL("dtPartsTemp","con",v.Local.sSQL)
+		f.ODBC.Connection!con.Close
+		
+		f.Intrinsic.Control.If(v.DataTable.dtPartsTemp.RowCount,=,0)
+			'If none found, query from GSS tables.  Exclude parts that have been received within the last 3 months.
+			f.Intrinsic.UI.Msgbox("No data found.")
+			f.Intrinsic.Control.End
+		f.Intrinsic.Control.Else
+			f.Intrinsic.String.Build("{0}\CUSTOM\GCG_5647\GCG_5647_DataUpdated.txt",v.Caller.GlobalDir,v.Local.sFilePath)
+			f.Intrinsic.File.Exists(v.Local.sFilePath,v.Local.bExists)
+			f.Intrinsic.Control.If(v.Local.bexists)
+				f.Intrinsic.file.File2String(v.Local.sFilePath,v.Local.sUpdated)
+				gui.F_Obsolescence.txtLastLoaded.Text(v.Local.sUpdated)
+			f.Intrinsic.Control.EndIf	
+			f.Data.DataTable.DeleteRow("dtParts")
+			f.Data.DataTable.acceptchanges("dtParts")
+			f.Data.DataTable.Merge("dtPartsTemp","dtParts",True,2)
+			f.Data.DataTable.Close("dtPartsTemp")
+		f.Intrinsic.Control.EndIf	
+	f.Intrinsic.Control.Catch
+		f.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, v.Ambient.CurrentSubroutine)
+	f.Intrinsic.Control.EndTry
+Program.Sub.loadData.End
+
+Program.Sub.Serialize.Start
+v.Local.sSerialize.Declare
+f.Intrinsic.Control.Try
+	f.Intrinsic.Control.If(v.DataTable.dtParts.Exists, =, False)
+	f.Intrinsic.Control.ExitSub
+	f.Intrinsic.Control.EndIf
+
+	gui.F_Obsolescence.GsGcSlowInv.Serialize("gvParts", v.Local.sSerialize)
+	f.Global.Registry.AddValue(v.Caller.User, v.Caller.CompanyCode, "gvParts", 5647, 1000, False, "Serialize", False, 0, -999.0, 1/1/1980, 12:00:00 AM, v.Local.sSerialize)
+
+f.Intrinsic.Control.Catch
+	f.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, v.Ambient.CurrentSubroutine)
+f.Intrinsic.Control.EndTry
+Program.Sub.Serialize.End
+
+Program.Sub.Deserialize.Start
+v.Local.sSerialize.Declare
+
+f.Intrinsic.Control.Try
+	f.Global.Registry.ReadValue(v.Caller.User, v.Caller.CompanyCode, "gvParts", 5647, 0, 5, "", v.Local.sSerialize)
+	f.Intrinsic.Control.If(v.Local.sSerialize, <>, "")
+		f.ODBC.Connection!common.OpenCommonConnection
+			f.ODBC.Connection!common.Execute("delete from GS_REGISTRY where REG_ID = '5647' and seq=1000;")
+		f.ODBC.Connection!common.Close
+	f.Intrinsic.Control.EndIf
+	
+	f.Global.Registry.ReadValue(v.Caller.User, v.Caller.CompanyCode, "gvParts", "5647", 1000, 6, "", v.Local.sSerialize)
+	f.Intrinsic.Control.If(v.Local.sSerialize.Trim, <>, "")
+		gui.F_Obsolescence.GsGcSlowInv.Deserialize(v.Local.sSerialize)
+	f.Intrinsic.Control.EndIf
+f.Intrinsic.Control.Catch
+	f.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, v.Ambient.CurrentSubroutine)
+f.Intrinsic.Control.EndTry
+Program.Sub.Deserialize.End
+
+Program.Sub.SetContextMenus.Start
+	F.Intrinsic.Control.Try
+		V.Local.sError.Declare
+		
+		Gui.F_Obsolescence..ContextMenuCreate("ctxObso")
+		Gui.F_Obsolescence.GsGcSlowInv.ContextMenuAttach("ctxObso")
+		Gui.F_Obsolescence..ContextMenuAddItem("ctxObso","Refresh",0,"Refresh")
+		Gui.F_Obsolescence..ContextMenuAddItem("ctxObso","Export",0,"Export")
+		Gui.F_Obsolescence..ContextMenuSetItemEventHandler("ctxObso","Refresh","cmdRefresh_Click")
+		Gui.F_Obsolescence..ContextMenuSetItemEventHandler("ctxObso","Export","MenuClickExport")	
+	F.Intrinsic.Control.Catch
+		f.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, v.Ambient.CurrentSubroutine)
+	F.Intrinsic.Control.EndTry
+Program.Sub.SetContextMenus.End
+
+Program.Sub.MenuClickExport.Start
+F.Intrinsic.Control.Try
+	V.Local.sError.Declare
+	V.Local.sFileExport.Declare
+	V.Local.bExcel.Declare
+	V.Local.bFileLocked.Declare
+	V.Local.sMsg.Declare
+	V.Local.sForm.Declare
+	V.Local.sControl.Declare
+	V.Local.sExt.Declare
+	
+	V.Local.sForm.Set("f_Obsolescence")
+	V.Local.sControl.Set("GsGcSlowInv")
+	
+	F.Automation.MSExcel.CheckPresence(V.Local.bExcel)
+	F.Intrinsic.Control.If(V.Local.bExcel)
+		V.Local.sExt.Set("xlsx")
+	F.Intrinsic.Control.Else
+		V.Local.sExt.Set("csv")
+	F.Intrinsic.Control.EndIf
+	
+	F.Intrinsic.String.Build("{0}\GAB_5647_ObsolescenceDashboard.{1}",V.Caller.LocalGssTempDir,V.Local.sExt,V.Local.sFileExport)
+	F.Intrinsic.File.IsFileLocked(V.Local.sFileExport,V.Local.bFileLocked)
+	F.Intrinsic.Control.If(V.Local.bFileLocked)
+		F.Intrinsic.String.Build("File is already open. Please close and export again.{0}File: {1}",V.Ambient.NewLine,V.Local.sFileExport,V.Local.sMsg)
+		F.Intrinsic.UI.Msgbox(V.Local.sMsg,"File In Use")
+	F.Intrinsic.Control.Else
+		Gui.[V.Local.sForm].[V.Local.sControl].Export(V.Local.sFileExport,V.Local.sExt)
+		F.Intrinsic.Task.ShellExec(0,"",V.Local.sFileExport,"","",1)
+	F.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.CatchWhen(5700)
+	F.Intrinsic.UI.Msgbox("No Data to Export","Export")
+f.Intrinsic.Control.Catch
+	f.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, v.Ambient.CurrentSubroutine)
+f.Intrinsic.Control.EndTry
+Program.Sub.MenuClickExport.End
+
+Program.Sub.loadGC.Start
+	F.Intrinsic.Control.Try
+	v.Local.iCnt.Declare
+	v.Local.sColName.Declare
+	v.Local.sColNameSecond.Declare
+	v.Local.iColCnt.Declare
+	gui.F_Obsolescence.pbStatus.Value(40)
+	gui.F_Obsolescence.GsGcSlowInv.AddGridviewFromDatatable("gvParts","dtParts")
+	gui.F_Obsolescence.GsGcSlowInv.MainView("gvParts")	
+	
+	f.Data.DataTable.Clone("dtParts","dtPartsTemp",True)
+	f.Data.DataTable.DeleteRow("dtPartsTemp")
+	gui.F_Obsolescence.GsGcSlowInv.AddGridviewFromDatatable("gvPartsTemp","dtPartsTemp")
+	gui.F_Obsolescence.GsGcSlowInv.MainView("gvPartsTemp")
+	gui.F_Obsolescence.GsGcSlowInv.SuspendLayout()
+	gui.F_Obsolescence.GsGcSlowInv.AddGridViewFromDataTable("gvParts","dtParts")
+	gui.F_Obsolescence.GsGcSlowInv.SetGridViewProperty("gvParts","MultiSelect",True)
+	gui.F_Obsolescence.GsGcSlowInv.SetGridViewProperty("gvParts","OptionBehaviorEditable",True)
+	gui.F_Obsolescence.GsGcSlowInv.SetGridViewProperty("gvParts","AllowSort",True)
+	gui.F_Obsolescence.GsGcSlowInv.SetGridViewProperty("gvParts","AllowFilter",True)
+	gui.F_Obsolescence.GsGcSlowInv.SetGridViewProperty("gvParts","OptionsDetailShowDetailTabs",False)
+	gui.F_Obsolescence.GsGcSlowInv.SetGridViewProperty("gvParts","OptionsViewShowGroupPanel",True)
+	gui.F_Obsolescence.GsGcSlowInv.SetGridviewProperty("gvParts","EnableAppearanceOddRow",True)
+	gui.F_Obsolescence.GsGcSlowInv.SetGridViewProperty("gvParts","OptionsViewColumnAutoWidth",False)
+
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","ORIG_PART","Visible",False)
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","A50","Visible",False)
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","J55","Visible",False)
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","O35","Visible",False)
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","R10","Visible",False)
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","R10Star","Visible",False)
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","T40","Visible",False)
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","W10","Visible",False)
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","WOReqs","Visible",False)
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","SOReqs","Visible",False)
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","QTY_CURRENT_USAGE","Visible",False)
+
+	'Static captions
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","Part","Caption","Part")
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","Product_Line","Caption","PL")
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","description","Caption","Description")
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","code_source","Caption","Purch/Manf")
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","qty_onhand","Caption","Qty On Hand")
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","cost","Caption","Cost")
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","Usage","Caption","Ann. Usage")
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","Overstock","Caption","Overstock")
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","Num_Years","Caption","# Years")
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","ExtCost","Caption","Reserve")
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","Location","Caption","Loc")
+	
+	
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","Part","CellForeColor",v.Color.LtBlue)
+	
+	gui.F_Obsolescence.GsGcSlowInv.GetColumnCount("gvParts",v.Local.iColCnt)
+	f.Intrinsic.Math.Sub(v.Local.iColCnt,1,v.Local.iColCnt)
+	f.Intrinsic.Control.For(v.Local.iCnt,0,v.Local.iColCnt,1)
+		gui.F_Obsolescence.GsGcSlowInv.GetColumnNameByIndex("gvParts",v.Local.iCnt,v.Local.sColName)
+		gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts",v.Local.sColName,"MinWidth","75")
+		gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts",v.Local.sColName,"AllowEdit",False)
+		gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts",v.Local.sColName,"ReadOnly",True)
+		gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts",v.Local.sColName,"HeaderFontBold",True)
+		gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts",v.Local.sColName,"HeaderHAlignment","Center")
+		f.Intrinsic.Control.SelectCase(v.Local.sColName)
+			f.Intrinsic.Control.caseany("Part","Description")
+				gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts",v.Local.sColName,"CellHAlignment","Left")
+			f.Intrinsic.Control.CaseElse
+				gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts",v.Local.sColName,"CellHAlignment","Center")
+		f.Intrinsic.Control.EndSelect
+	f.Intrinsic.Control.Next(v.Local.iCnt)
+	
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","DESCRIPTION","MinWidth","200")
+	
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","qty_onhand","DisplayCustomNumeric","#######0.0000")
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","Usage","DisplayCustomNumeric","#######0.000")
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","Overstock","DisplayCustomNumeric","#######0.000")
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","Num_Years","DisplayCustomNumeric","#######0.00")
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","cost","DisplayCustomNumeric","$  ##,###,##0.0000")
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","ExtCost","DisplayCustomNumeric","$  ##,###,##0.000")
+	
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","PART","Fixed","Left")
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","LOCATION","Fixed","Left")
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","Product_Line","Fixed","Left")
+	gui.F_Obsolescence.GsGcSlowInv.SetColumnProperty("gvParts","description","Fixed","Left")
+
+	gui.F_Obsolescence.pbStatus.Value(100)
+	
+	gui.F_Obsolescence.GsGcSlowInv.ResumeLayout()
+	gui.F_Obsolescence.GsGcSlowInv.MainView("gvParts")
+	f.Data.DataTable.Close("dtPartsTemp")
+	
+	GUI.F_Obsolescence.GsGcSlowInv.AddSummaryItem("gvParts","ORIG_PART","PARTCOUNT","COUNT","Count: ")
+	
+	gui.F_Obsolescence.lblStatus.Visible(False)
+	gui.F_Obsolescence.pbStatus.Visible(False)
+	v.Global.bLoaded.Set(True)
+	f.Intrinsic.Control.Catch
+		f.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, v.Ambient.CurrentSubroutine)
+	f.Intrinsic.Control.EndTry
+Program.Sub.loadGC.End
+
+Program.Sub.GsGcSlowInv_RowCellClick.Start
+	'If column Part clicked, open S&D
+	f.Intrinsic.Control.If(v.Args.column,=,"part")
+		'Clear previously opened part from the datatable so that callwrapper will only open Supply and Demand once
+		F.Data.DataTable.DeleteRow("300010")
+		'Add the part and location to the datatable
+		F.Data.DataTable.AddRow("300010","Part",v.DataTable.dtParts(v.Args.rowindex).Part!FIELDVAL,"Loc",v.DataTable.dtParts(v.Args.rowindex).Location!FieldVal)
+		'Open screen synchronously
+		f.Intrinsic.Control.CallSub(300010Sync)
+	f.Intrinsic.Control.EndIf
+Program.Sub.GsGcSlowInv_RowCellClick.End
+
+Program.Sub.cmdRefreshReqs_Click.Start
+	v.Local.sGABScriptPath.Declare(string)
+	v.Local.iPID.Declare(long)
+	v.Local.bTask.Declare(boolean)
+	
+	'Show the user some feedback on what is happening
+	gui.F_Obsolescence.pbStatus.Value(0)
+	gui.F_Obsolescence.lblStatus.Visible(True)
+	gui.F_Obsolescence.pbStatus.Visible(True)
+	'Run Balance Requirements
+	gui.F_Obsolescence.lblStatus.Caption("Balancing Requirements...")
+	gui.F_Obsolescence.pbStatus.Value(0)
+	f.Global.General.LaunchMenuTask(319,0,v.Local.iPID)
+	'	To launch this menu item as sync, we need to keep track of the calling PID and not execute the next lines of code until it is finished.
+	f.Intrinsic.task.PIDRunning(v.Local.iPID,v.Local.bTask)
+	f.Intrinsic.Control.DoUntil(v.Local.bTask,=,False)
+		f.Intrinsic.UI.SleepMS(20)
+		f.Intrinsic.task.PIDRunning(v.Local.iPID,v.Local.bTask)
+	f.Intrinsic.Control.Loop
+	'Open Calculate Monthly Usage
+	gui.F_Obsolescence.lblStatus.Caption("Calculating Usage...")
+	gui.F_Obsolescence.pbStatus.Value(33)
+	f.Global.General.LaunchMenuTask(336,0,v.Local.iPID)
+	'	Same thing here, we want to make sure that this is done running before we proceed to the next lines
+	f.Intrinsic.task.PIDRunning(v.Local.iPID,v.Local.bTask)
+	f.Intrinsic.Control.DoUntil(v.Local.bTask,=,False)
+		f.Intrinsic.UI.SleepMS(20)
+		f.Intrinsic.task.PIDRunning(v.Local.iPID,v.Local.bTask)
+	f.Intrinsic.Control.Loop
+	'Refresh the dashboard cache
+	gui.F_Obsolescence.lblStatus.Caption("Rebuilding Cache...")
+	gui.F_Obsolescence.pbStatus.Value(67)
+	f.Intrinsic.String.Build("{0}GCG_5647_RebuildCache.g2u",v.Caller.GasDir,v.Local.sGABScriptPath)
+	f.Global.General.CallSyncGAS(v.Local.sGABScriptPath)
+	'Refresh the dashboard
+	gui.F_Obsolescence.lblStatus.Caption("Loading Order Data...")
+	f.Intrinsic.Control.CallSub(LoadData)
+	'Show the user that the processing is done, then hide the controls
+	gui.F_Obsolescence.pbStatus.Value(100)
+	f.Intrinsic.UI.Sleep(1)
+	gui.F_Obsolescence.lblStatus.Visible(False)
+	gui.F_Obsolescence.pbStatus.Visible(False)
+Program.Sub.cmdRefreshReqs_Click.End
