@@ -1,0 +1,166 @@
+Program.Sub.Main.Start
+	f.Intrinsic.Control.Try		
+		f.Intrinsic.ui.InvokeWaitDialog("Building Obsolescence Dashboard data cache...")
+		f.Intrinsic.Control.CallSub(ReloadData)
+		f.Intrinsic.ui.CloseWaitDialog
+	f.Intrinsic.Control.Catch
+		f.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, v.Ambient.CurrentSubroutine)
+	f.Intrinsic.Control.EndTry
+Program.Sub.Main.End
+
+Program.Sub.ErrorMsg.Start
+v.Local.sError.Declare
+
+'Closes ODBC connection, default to connection : "con"
+f.Intrinsic.Control.If(v.ODBC!con.State, =, 1)
+	f.ODBC.Connection!con.Close
+f.Intrinsic.Control.EndIf
+
+'Generic Error message.
+f.Intrinsic.String.Build("Project GCG_5647_RebuildCache.g2u {0}{0}Subroutine: {1}{0}Error: {2} with Description: {3}", v.Ambient.NewLine, v.Args.CurrentSub, v.Ambient.ErrorNumber, v.Ambient.ErrorDescription, v.Local.sError)
+f.Intrinsic.UI.Msgbox(v.Local.sError)
+Program.Sub.ErrorMsg.End
+
+Program.Sub.reloadData.Start
+	f.Intrinsic.Control.try	
+		v.Local.sSQL.Declare(string)
+		v.Local.sSQL2.Declare(string)
+		v.Local.sSQL3.Declare(string)
+		v.Local.sSQL4.Declare(string)
+		v.Local.dBegDate.Declare(date)
+		v.Local.dEndDate.Declare(date)
+		v.Local.dPORecvDate.Declare(date)
+		v.Local.sUpdated.Declare(string)
+		v.Local.bExists.Declare(boolean)
+		v.Local.sFilePath.Declare(string)
+		V.Local.iCnt.Declare(long)
+		v.Local.sDescription.Declare(string)
+		
+		'Get the info from inv_ALL and inv_cost.  Exclude records where there is 0 qty on hand, since this tool is meant to find slow moving parts on hand so the company can decide what to do with the
+		v.Local.sSQL2.SET("select DISTINCT ltrim(rtrim(a.part)) as part, a.LOCATION, LTRIM(RTRIM(a.part))+a.location as ORIG_PART, ltrim(rtrim(a.description)) as DESCRIPTION, a.PRODUCT_LINE, case ltrim(rtrim(A.code_source)) when 'M' then 'M' when 'F' then 'M' when 'P' then 'P' when 'J' then 'P' else 'C' end as CODE_SOURCE, a.QTY_ONHAND, a.qty_usage_mo_01+a.qty_usage_mo_02+a.qty_usage_mo_03+a.qty_usage_mo_04+a.qty_usage_mo_05+a.qty_usage_mo_06+a.qty_usage_mo_07+a.qty_usage_mo_08+a.qty_usage_mo_09+a.qty_usage_mo_10+a.qty_usage_mo_11+a.qty_usage_mo_12 as qty_current_usage, b.COST AS COST, '' as PO_Rec from v_inventory_ALL a inner join v_inventory_cost b on a.part=b.part and a.location=b.locn where a.QTY_ONHAND>0 and a.product_line not in ('CS','CN');")
+		
+		'Get parts that have not been received in the last 3 months		
+		f.Intrinsic.Date.DateAdd("YYYY",-2,v.ambient.Now,v.Local.dBegDate)
+		f.Intrinsic.Date.DateAdd("YYYY",1,v.Local.dBegDate,v.Local.dEndDate)
+		f.Intrinsic.Date.DateAdd("M",-3,v.ambient.Now,v.Local.dPORecvDate)
+		f.Intrinsic.String.Build("select ltrim(rtrim(part))+Location as Part, 1 as Flag from v_inventory_hist where code_transaction in ('P10', 'R10','R11','P11') and date_history >= '{0}' and part not like '%*';", v.Local.dPORecvDate.PervasiveDate, v.Local.sSQL3)
+		f.Intrinsic.String.Build("select CASE WHEN PART LIKE '%*' THEN LTRIM(RTRIM(REPLACE(PART,'*',''))) ELSE ltrim(rtrim(part)) END + Location as Part, 1 as Flag from v_inventory_hist where code_transaction in ('P10', 'R10','R11','P11') and date_history >= '{0}' and part like '%*';", v.Local.dPORecvDate.PervasiveDate, v.Local.sSQL4)
+		
+		'Transaction codes that affect usage:
+		'A50 - Standalone Issue					NEG VALUE=POS USAGE							**Only apply usage is IGNORE_FOR_USAGE = False													CONFIRMED
+		'J55 - Issue Material to Work Order		POS VALUE=POS USAGE, NEG VALUE=NEG USAGE	**Depends on user selection in GUI																CONFIRMED
+		'O35 - Invoicing from Inventory			NEG VALUE=POS USAGE							**Always positive usage																			CONFIRMED
+		'R10 - PO Receipt to Work Order			POS VALUE=POS USAGE							**Only apply usage is IGNORE_FOR_USAGE = False.													CONFIRMED
+		'T40 - Inventory In Transit				NEG VALUE=POS USAGE							**Option on screen for "Update Usage" must be checked (Inventory>Transactions>In Transit)		CONFIRMED
+		'W10 - RMA								POS VALUE=NEG USAGE							**Negative usage since returning to inventory													CONFIRMED
+		
+		'Build the usage datatables for the 12 months before the previous 12 months: one for each transaction code
+		f.ODBC.Connection!con.openconnection(v.Ambient.PDSN,v.Ambient.PUser,v.Ambient.PPass,999999)
+			f.Data.DataTable.CreateFromSQL("dtTempPart","con",v.Local.sSQL2,True)
+			f.Data.DataTable.CreateFromSQL("dtTempPORec1","con",v.Local.sSQL3)
+			f.Data.DataTable.CreateFromSQL("dtTempPORec2","con",v.Local.sSQL4)
+			
+			f.Data.DataTable.Merge("dtTempPORec2","dtTempPORec2",False,2)
+			f.Data.DataTable.Close("dtTempPORec2")
+			f.Data.Dictionary.createfromdatatable("dictPORec","dtTempPORec1","Part","Flag")
+			f.Data.Dictionary.SetDefaultReturn("dictPORec","")
+			f.Data.DataTable.FillFromDictionary("dtTempPart","dictPORec","Part","PO_Rec")
+			f.Data.Dictionary.Close("dictPORec")
+			f.Data.DataTable.Close("dtTempPORec1")
+			
+			f.Data.DataView.Create("dtTempPart","dvTempPart",22,"PO_Rec=''","")
+			f.Data.DataView.ToDataTable("dtTempPart","dvTempPart","dtTemp")
+			f.Data.DataView.Close("dtTempPart","dvTempPart")
+			f.Data.DataTable.Close("dtTempPart")			
+			
+			f.Intrinsic.String.Build("select LTRIM(RTRIM(PART))+LOCATION AS PART, abs(sum(quantity)) from v_inventory_hist where ignore_for_usage=0 and code_transaction='A50' and date_history >= '{0}' and date_history <= '{1}' group by Part,LOCATION;",v.Local.dBegDate.PervasiveDate,v.Local.dEndDate.PervasiveDate,v.Local.sSQL)
+			f.Data.Dictionary.CreateFromSQL("dictA50", "con", v.Local.sSQL)
+			F.Data.Dictionary.SetDefaultReturn("dictA50",0)
+			'#################################---BREAK UP THE J55'S INTO 6 MONTH INCREMENTS TO ACCOMODATE A LARGE DATASET---#################################
+			f.Intrinsic.String.Build("select LTRIM(RTRIM(PART))+LOCATION AS PART, ABS(sum(quantity)) from v_inventory_hist where code_transaction='J55' and date_history >= '{0}' and date_history <= '{1}' group by Part,LOCATION;",v.Local.dBegDate.PervasiveDate,v.Local.dEndDate.PervasiveDate,v.Local.sSQL)
+			f.Data.Dictionary.CreateFromSQL("dictJ55", "con", v.Local.sSQL)
+			F.Data.Dictionary.SetDefaultReturn("dictJ55",0)
+			'#################################---BREAK UP THE O35'S INTO 6 MONTH INCREMENTS TO ACCOMODATE A LARGE DATASET---#################################
+			f.Intrinsic.String.Build("select LTRIM(RTRIM(PART))+LOCATION AS PART, abs(sum(quantity)) from v_inventory_hist where code_transaction='O35' and date_history >= '{0}' and date_history <= '{1}' group by Part,LOCATION;",v.Local.dBegDate.PervasiveDate,v.Local.dEndDate.PervasiveDate,v.Local.sSQL)
+			f.Data.Dictionary.CreateFromSQL("dictO35", "con", v.Local.sSQL)
+			F.Data.Dictionary.SetDefaultReturn("dictO35",0)
+			'MAKE SURE TO REMOVE THE SPACES AND ASTERISK FROM THE PART
+			f.Intrinsic.String.Build("select LTRIM(RTRIM(PART))+LOCATION AS PART, sum(quantity) from v_inventory_hist where ignore_for_usage=0 and code_transaction='R10' and date_history >= '{0}' and date_history <= '{1}' AND PART NOT LIKE '%*' AND QUANTITY > 0 group by Part,LOCATION;",v.Local.dBegDate.PervasiveDate,v.Local.dEndDate.PervasiveDate,v.Local.sSQL)
+			f.Data.Dictionary.CreateFromSQL("dictR10NoStar", "con", v.Local.sSQL)
+			F.Data.Dictionary.SetDefaultReturn("dictR10NoStar",0)
+			f.Intrinsic.String.Build("select CASE WHEN PART LIKE '%*' THEN LTRIM(RTRIM(REPLACE(PART,'*',''))) ELSE ltrim(rtrim(part)) END + LOCATION AS Part, sum(quantity) from v_inventory_hist where ignore_for_usage=0 and code_transaction='R10' and date_history >= '{0}' and date_history <= '{1}' AND PART  LIKE '%*' AND QUANTITY > 0 group by Part,LOCATION;",v.Local.dBegDate.PervasiveDate,v.Local.dEndDate.PervasiveDate,v.Local.sSQL)
+			f.Data.Dictionary.CreateFromSQL("dictR10WithStar", "con", v.Local.sSQL)
+			F.Data.Dictionary.SetDefaultReturn("dictR10WithStar",0)
+			f.Intrinsic.String.Build("select ltrim(rtrim(part))+LOCATION as Part, abs(sum(quantity)) from v_inventory_hist where code_transaction='T40' and date_history >= '{0}' and date_history <= '{1}' and ignore_for_usage=0 group by Part,LOCATION;",v.Local.dBegDate.PervasiveDate,v.Local.dEndDate.PervasiveDate,v.Local.sSQL)
+			f.Data.Dictionary.CreateFromSQL("dictT40", "con", v.Local.sSQL)
+			F.Data.Dictionary.SetDefaultReturn("dictT40",0)
+			f.Intrinsic.String.Build("select ltrim(rtrim(part))+LOCATION as Part, -(sum(quantity)) from v_inventory_hist where code_transaction='W10' and date_history >= '{0}' and date_history <= '{1}' group by Part,LOCATION;",v.Local.dBegDate.PervasiveDate,v.Local.dEndDate.PervasiveDate,v.Local.sSQL)
+			f.Data.Dictionary.CreateFromSQL("dictW10", "con", v.Local.sSQL)
+			F.Data.Dictionary.SetDefaultReturn("dictW10",0)
+			f.Data.Dictionary.CreateFromSQL("dictWOReqs", "con", "select LTRIM(RTRIM(a.part))+b.location as PART, sum(c.pcsremain) as PcsRemain from v_job_operations a INNER JOIN V_JOB_HEADER B ON A.JOB=B.JOB AND A.SUFFIX=B.SUFFIX left join apsv3_jblines c on (a.job+a.suffix+a.seq)=c.jss where a.lmo='M' group by a.part,b.location")
+			F.Data.Dictionary.SetDefaultReturn("dictWOReqs",0)
+			f.Data.Dictionary.CreateFromSQL("dictSOReqs", "con", "SELECT ltrim(rtrim(PART))+location as Part, SUM(QTY_BO) AS QTY_BO FROM V_ORDER_LINES GROUP BY PART,location")
+			F.Data.Dictionary.SetDefaultReturn("dictSOReqs",0)
+		f.ODBC.Connection!con.Close
+		
+		'Fill the original datatable with usage transaction amounts
+		f.Data.DataTable.AddColumn("dtTemp","A50","float")
+		f.Data.DataTable.AddColumn("dtTemp","J55","float")
+		f.Data.DataTable.AddColumn("dtTemp","O35","float")
+		f.Data.DataTable.AddColumn("dtTemp","R10","float")
+		f.Data.DataTable.AddColumn("dtTemp","R10STAR","float")
+		f.Data.DataTable.AddColumn("dtTemp","T40","float")
+		f.Data.DataTable.AddColumn("dtTemp","W10","float")
+		f.Data.DataTable.AddColumn("dtTemp","WOReqs","float")
+		f.Data.DataTable.AddColumn("dtTemp","SOReqs","float")
+		
+		F.Data.DataTable.FillFromDictionary("dtTemp","dictA50","ORIG_PART","A50")
+		F.Data.DataTable.FillFromDictionary("dtTemp","dictJ55","ORIG_PART","J55")
+		F.Data.DataTable.FillFromDictionary("dtTemp","dictO35","ORIG_PART","O35")
+		F.Data.DataTable.FillFromDictionary("dtTemp","dictR10NoStar","ORIG_PART","R10")
+		F.Data.DataTable.FillFromDictionary("dtTemp","dictR10WithStar","ORIG_PART","R10Star")
+		F.Data.DataTable.FillFromDictionary("dtTemp","dictT40","ORIG_PART","T40")
+		F.Data.DataTable.FillFromDictionary("dtTemp","dictW10","ORIG_PART","W10")
+		F.Data.DataTable.FillFromDictionary("dtTemp","dictWOReqs","ORIG_PART","WOReqs")
+		F.Data.DataTable.FillFromDictionary("dtTemp","dictSOReqs","ORIG_PART","SOReqs")
+		
+		f.Data.DataTable.AddExpressionColumn("dtTemp","USAGE","float","qty_current_usage+A50+J55+O35+R10+R10Star+T40+W10+WOReqs+SOReqs")
+		f.Data.DataTable.AddExpressionColumn("dtTemp","OVERSTOCK","float","qty_onhand-Usage")
+		f.Data.DataTable.AddExpressionColumn("dtTemp","NUM_YEARS","float","IIF(USAGE=0,0,qty_onhand/Usage)")
+		f.Data.DataTable.AddExpressionColumn("dtTemp","EXTCOST","float","OVERSTOCK*Cost*iif([NUM_YEARS]>=1 AND [NUM_YEARS]<2,0.35,1)")
+		
+		F.Data.DataView.Create("dtTemp","dvTemp",22,"Overstock>0","")
+		f.Data.DataView.ToDataTable("dtTemp","dvTemp","dtFinal")
+		
+		'------------------Save to DB---------------------------
+		'Load the data, move to a temp table for caching, update the last cached time.
+		f.ODBC.Connection!con.openconnection(v.Ambient.PDSN,v.Ambient.PUser,v.Ambient.PPass,999999)
+			f.odbc.Connection!con.execute("delete from GCG_5647_OBSOLPARTS;")
+			f.Intrinsic.Control.For(v.Local.iCnt,0,v.DataTable.dtFinal.RowCount--,1)
+				f.Intrinsic.String.Replace(v.DataTable.dtFinal(v.Local.iCnt).Description!FieldVal,"'","",v.Local.sDescription)
+				F.Intrinsic.String.Build("INSERT INTO GCG_5647_OBSOLPARTS (PART, LOCATION, DESCRIPTION, PRODUCT_LINE, CODE_SOURCE, QTY_ONHAND, USAGE, OVERSTOCK, NUM_YEARS, COST, EXTCOST, A50, J55, O35, R10, R10STAR, T40, W10, ORIG_PART, QTY_CURRENT_USAGE, SOREQS, WOREQS) VALUES ('{0}','{1}','{2}','{3}','{4}',{5},{6},{7},{8},{9},{10},{11},{12},{13},{14},{15},{16},{17},'{18}','{19}',{20},{21});",v.DataTable.dtFinal(v.Local.iCnt).Part!FieldVal,v.DataTable.dtFinal(v.Local.iCnt).Location!FieldVal,v.local.sDescription,v.DataTable.dtFinal(v.Local.iCnt).Product_Line!FieldVal,v.DataTable.dtFinal(v.Local.iCnt).CODE_SOURCE!FieldVal,v.DataTable.dtFinal(v.Local.iCnt).QTY_ONHAND!FieldVal,v.DataTable.dtFinal(v.Local.iCnt).USAGE!FieldVal,v.DataTable.dtFinal(v.Local.iCnt).OVERSTOCK!FieldVal,v.DataTable.dtFinal(v.Local.iCnt).NUM_YEARS!FieldVal,v.DataTable.dtFinal(v.Local.iCnt).COST!FieldVal,v.DataTable.dtFinal(v.Local.iCnt).EXTCOST!FieldVal,v.DataTable.dtFinal(v.Local.iCnt).A50!FieldVal,v.DataTable.dtFinal(v.Local.iCnt).J55!FieldVal,v.DataTable.dtFinal(v.Local.iCnt).O35!FieldVal,v.DataTable.dtFinal(v.Local.iCnt).R10!FieldVal,v.DataTable.dtFinal(v.Local.iCnt).R10STAR!FieldVal,v.DataTable.dtFinal(v.Local.iCnt).T40!FieldVal,v.DataTable.dtFinal(v.Local.iCnt).W10!FieldVal,v.DataTable.dtFinal(v.Local.iCnt).ORIG_PART!FieldVal,v.DataTable.dtFinal(v.Local.iCnt).QTY_CURRENT_USAGE!FieldVal,v.DataTable.dtFinal(v.Local.iCnt).SOREQS!FieldVal,v.DataTable.dtFinal(v.Local.iCnt).WOREQS!FieldVal,v.Local.sSQL)
+				f.ODBC.Connection!con.execute(v.Local.sSQL)
+			f.Intrinsic.Control.Next(v.Local.iCnt)
+		f.ODBC.Connection!con.Close		
+		
+		v.Local.sUpdated.Set(v.Ambient.Now.String)
+		f.Intrinsic.String.Build("{0}\CUSTOM\GCG_5647\GCG_5647_DataUpdated.txt",v.Caller.GlobalDir,v.Local.sFilePath)
+		f.Intrinsic.File.Exists(v.Local.sFilePath,v.Local.bExists)
+		f.Intrinsic.Control.If(v.Local.bexists)
+			f.Intrinsic.File.DeleteFile(v.Local.sFilePath)
+		f.Intrinsic.Control.EndIf
+		f.Intrinsic.File.String2File(v.Local.sFilePath,v.Local.sUpdated)	
+		
+		f.Data.DataTable.Close("dtFinal")
+		f.Data.DataView.Close("dtTemp","dvTemp")
+		f.Data.DataTable.Close("dtTemp")
+	f.Intrinsic.Control.Catch
+		f.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, v.Ambient.CurrentSubroutine)
+	f.Intrinsic.Control.Finally
+		f.Intrinsic.Control.If(v.ODBC!con.State,=,1)
+			f.ODBC.Connection!con.Close
+		f.Intrinsic.Control.EndIf
+		
+		f.Intrinsic.Control.End
+	f.Intrinsic.Control.EndTry
+Program.Sub.reloadData.End
